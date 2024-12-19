@@ -1,4 +1,162 @@
-66: { A: 5.83, B: 14.14, C: 32.67 },
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pediatric Dose Calculator</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50">
+    <div class="max-w-4xl mx-auto p-4">
+        <h1 class="text-3xl font-bold text-gray-900 mb-8">Pediatric Dose Calculator</h1>
+        
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="mb-6">
+                <label for="radioSearch" class="block text-sm font-medium text-gray-700 mb-1">
+                    Search Radiopharmaceutical
+                    <span class="text-sm text-gray-500 font-normal">(required for EANM method)</span>
+                </label>
+                <input type="text" id="radioSearch" 
+                    class="w-full p-2 border border-gray-300 rounded-md"
+                    placeholder="Start typing...">
+                <div id="searchResults" class="hidden mt-1 max-h-60 overflow-auto border border-gray-200 rounded-md"></div>
+                <div id="selectedRadio" class="hidden mt-2 p-2 bg-blue-50 text-blue-700 rounded-md"></div>
+            </div>
+
+            <div class="mb-6">
+                <label for="weight" class="block text-sm font-medium text-gray-700 mb-1">
+                    Weight (kg)
+                    <span class="text-sm text-gray-500 font-normal">(required for weight-based and EANM methods)</span>
+                </label>
+                <input type="number" id="weight" min="0" max="68" step="0.1"
+                    class="w-full p-2 border border-gray-300 rounded-md">
+            </div>
+
+            <div class="mb-6">
+                <label for="age" class="block text-sm font-medium text-gray-700 mb-1">
+                    Age (years)
+                    <span class="text-sm text-gray-500 font-normal">(required for Webster's formula, must be greater than 0 and less than 18)</span>
+                </label>
+                <input type="number" id="age" min="0" max="18" step="1"
+                    class="w-full p-2 border border-gray-300 rounded-md"
+                    onchange="if(this.value <= 0 || this.value >= 18) this.value = '';">
+                <div id="ageError" class="hidden mt-1 text-red-600 text-sm"></div>
+            </div>
+
+            <div class="mb-6">
+                <label for="adultDose" class="block text-sm font-medium text-gray-700 mb-1">
+                    Adult Dose (mCi)
+                    <span class="text-sm text-gray-500 font-normal">(required for weight-based and Webster's methods)</span>
+                </label>
+                <input type="number" id="adultDose" min="0" step="0.1"
+                    class="w-full p-2 border border-gray-300 rounded-md">
+            </div>
+        </div>
+
+        <div id="result" class="hidden mt-6">
+            <h3 class="text-xl font-semibold text-gray-900 mb-4">Results:</h3>
+            <div id="resultContent"></div>
+        </div>
+
+        <footer class="mt-8 p-6 bg-white rounded-lg shadow">
+            <div class="text-sm text-gray-600">
+                <h4 class="font-semibold mb-2">Reference:</h4>
+                <p class="mb-2">Pandey AK, Sharma SK, Sharma P, Gupta P, Kumar R. Development of a radiopharmaceutical dose calculator for pediatric patients undergoing diagnostic nuclear medicine studies. Indian J Nucl Med. 2013 Apr;28(2):75-8.</p>
+                <p class="text-gray-500">
+                    <span class="mr-4">doi: 10.4103/0972-3919.118230</span>
+                    <span class="mr-4">PMID: 24163510</span>
+                    <span>PMCID: PMC3800315</span>
+                </p>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        // Complete radiopharmaceuticals data
+        const radiopharmaceuticals = {
+            // Iodine-based
+            'I-123 (Thyroid)': { class: 'C', baseline: 0.6, minimum: 3, description: 'Thyroid imaging' },
+            'I-123 Amphetamine (Brain)': { class: 'B', baseline: 13.0, minimum: 18, description: 'Brain imaging' },
+            'I-123 HIPPURAN (Abnormal renal function)': { class: 'B', baseline: 5.3, minimum: 10, description: 'Renal function imaging' },
+            'I-123 HIPPURAN (Normal renal function)': { class: 'A', baseline: 12.8, minimum: 10, description: 'Renal function imaging' },
+            'I-123 mIBG': { class: 'B', baseline: 28.0, minimum: 37, description: 'Neuroendocrine tumor imaging' },
+            'I-131 mIBG': { class: 'B', baseline: 5.6, minimum: 35, description: 'Therapy/imaging' },
+
+            // Fluorine-based
+            'F-18 FDG-PET torso': { class: 'B', baseline: 25.9, minimum: 26, description: 'Whole body PET imaging' },
+            'F-18 FDG-PET brain': { class: 'B', baseline: 14.0, minimum: 14, description: 'Brain PET imaging' },
+            'F-18 Sodium fluoride': { class: 'B', baseline: 10.5, minimum: 14, description: 'Bone PET imaging' },
+
+            // Gallium-based
+            'Ga-67 Citrate': { class: 'B', baseline: 5.6, minimum: 10, description: 'Inflammation imaging' },
+            'Ga-68 labelled peptides': { class: 'B', baseline: 12.8, minimum: 14, description: 'PET imaging' },
+
+            // Technetium-based
+            'Tc-99m ALBUMIN (Cardiac)': { class: 'B', baseline: 56.0, minimum: 80, description: 'Cardiac imaging' },
+            'Tc-99m COLLOID (Gastric Reflux)': { class: 'B', baseline: 2.8, minimum: 10, description: 'Gastric imaging' },
+            'Tc-99m COLLOID (Liver/Spleen)': { class: 'B', baseline: 5.6, minimum: 15, description: 'Liver/Spleen imaging' },
+            'Tc-99m COLLOID (Marrow)': { class: 'B', baseline: 21.0, minimum: 20, description: 'Bone marrow imaging' },
+            'Tc-99m DMSA': { class: 'B', baseline: 6.8, minimum: 18.5, description: 'Renal cortical imaging' },
+            'Tc-99m DTPA (Abnormal renal function)': { class: 'B', baseline: 14.0, minimum: 20, description: 'Renal function imaging' },
+            'Tc-99m DTPA (Normal renal function)': { class: 'A', baseline: 34.0, minimum: 20, description: 'Renal function imaging' },
+            'Tc-99m ECD': { class: 'B', baseline: 51.8, minimum: 100, description: 'Brain perfusion imaging' },
+            'Tc-99m HMPAO (Brain)': { class: 'B', baseline: 51.8, minimum: 100, description: 'Brain perfusion' },
+            'Tc-99m HMPAO (WBC)': { class: 'B', baseline: 35.0, minimum: 40, description: 'Infection imaging' },
+            'Tc-99m IDA (Biliary)': { class: 'B', baseline: 10.5, minimum: 20, description: 'Hepatobiliary imaging' },
+            'Tc-99m MAA / Microspheres': { class: 'B', baseline: 5.6, minimum: 10, description: 'Lung perfusion' },
+            'Tc-99m MAG3': { class: 'A', baseline: 11.9, minimum: 15, description: 'Renal function imaging' },
+            'Tc-99m MDP': { class: 'B', baseline: 35.0, minimum: 40, description: 'Bone scanning' },
+            'Tc-99m Pertechnetate (Cystography)': { class: 'B', baseline: 1.4, minimum: 20, description: 'Bladder imaging' },
+            'Tc-99m Pertechnetate (Ectopic Gastric Mucosa)': { class: 'B', baseline: 10.5, minimum: 20, description: "Meckel's scan" },
+            'Tc-99m Pertechnetate (Cardiac First Pass)': { class: 'B', baseline: 35.0, minimum: 80, description: 'Cardiac imaging' },
+            'Tc-99m Pertechnetate (Thyroid)': { class: 'B', baseline: 5.6, minimum: 10, description: 'Thyroid imaging' },
+            'Tc-99m RBC (Blood Pool)': { class: 'B', baseline: 56.0, minimum: 80, description: 'Blood pool imaging' },
+            'Tc-99m SestaMIBI/Tetrofosmin (Cancer seeking agent)': { class: 'B', baseline: 63.0, minimum: 80, description: 'Cancer imaging' },
+            'Tc-99m SestaMIBI/Tetrofosmin (Cardiac rest scan 2-day protocol min)': { class: 'B', baseline: 42.0, minimum: 80, description: 'Cardiac imaging' },
+            'Tc-99m SestaMIBI/Tetrofosmin (Cardiac rest scan 2-day protocol max)': { class: 'B', baseline: 63.0, minimum: 80, description: 'Cardiac imaging' },
+            'Tc-99m SestaMIBI/Tetrofosmin (Cardiac stress scan 2-day protocol min)': { class: 'B', baseline: 42.0, minimum: 80, description: 'Cardiac imaging' },
+            'Tc-99m SestaMIBI/Tetrofosmin (Cardiac stress scan 2-day protocol max)': { class: 'B', baseline: 63.0, minimum: 80, description: 'Cardiac imaging' },
+            'Tc-99m SestaMIBI/Tetrofosmin (Cardiac rest scan 1-day protocol)': { class: 'B', baseline: 28.0, minimum: 80, description: 'Cardiac imaging' },
+            'Tc-99m SestaMIBI/Tetrofosmin (Cardiac stress scan 1-day protocol)': { class: 'B', baseline: 84.0, minimum: 80, description: 'Cardiac imaging' },
+            'Tc-99m Spleen (Denatured RBC)': { class: 'B', baseline: 2.8, minimum: 20, description: 'Spleen imaging' },
+            'Tc-99m TECHNEGAS (Lung ventilation)': { class: 'B', baseline: 49.0, minimum: 100, description: 'Lung ventilation imaging' }
+        };
+
+        // Complete EANM Table
+        const eanmTable = {
+            3: { A: 1, B: 1, C: 1 },
+            4: { A: 1.12, B: 1.14, C: 1.33 },
+            6: { A: 1.47, B: 1.71, C: 2.00 },
+            8: { A: 1.71, B: 2.14, C: 3.00 },
+            10: { A: 1.94, B: 2.71, C: 3.67 },
+            12: { A: 2.18, B: 3.14, C: 4.67 },
+            14: { A: 2.35, B: 3.57, C: 5.67 },
+            16: { A: 2.53, B: 4.00, C: 6.33 },
+            18: { A: 2.71, B: 4.43, C: 7.33 },
+            20: { A: 2.88, B: 4.86, C: 8.33 },
+            22: { A: 3.06, B: 5.29, C: 9.33 },
+            24: { A: 3.18, B: 5.71, C: 10.00 },
+            26: { A: 3.35, B: 6.14, C: 11.00 },
+            28: { A: 3.47, B: 6.43, C: 12.00 },
+            30: { A: 3.65, B: 6.86, C: 13.00 },
+            32: { A: 3.77, B: 7.29, C: 14.00 },
+            34: { A: 3.88, B: 7.72, C: 15.00 },
+            36: { A: 4.00, B: 8.00, C: 16.00 },
+            38: { A: 4.18, B: 8.43, C: 17.00 },
+            40: { A: 4.29, B: 8.86, C: 18.00 },
+            42: { A: 4.41, B: 9.14, C: 19.00 },
+            44: { A: 4.53, B: 9.57, C: 20.00 },
+            46: { A: 4.65, B: 10.00, C: 21.00 },
+            48: { A: 4.77, B: 10.29, C: 22.00 },
+            50: { A: 4.88, B: 10.71, C: 23.00 },
+            52: { A: 5.00, B: 11.29, C: 24.67 },
+            54: { A: 5.12, B: 11.29, C: 24.67 },
+            56: { A: 5.24, B: 12.00, C: 26.67 },
+            58: { A: 5.36, B: 12.00, C: 26.67 },
+            60: { A: 5.47, B: 12.71, C: 28.67 },
+            62: { A: 5.59, B: 13.43, C: 30.67 },
+            64: { A: 5.71, B: 13.43, C: 30.67 },
+            66: { A: 5.83, B: 14.14, C: 32.67 },
             68: { A: 5.94, B: 14.86, C: 34.67 }
         };
 
@@ -245,3 +403,4 @@
     </script>
 </body>
 </html>
+
