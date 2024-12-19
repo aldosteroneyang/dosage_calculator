@@ -242,7 +242,8 @@
 
             selectedDiv.style.display = 'none';
             const matches = Object.keys(radiopharmaceuticals).filter(radio => 
-                radio.toLowerCase().includes(query)
+                radio.toLowerCase().includes(query) || 
+                radiopharmaceuticals[radio].description.toLowerCase().includes(query)
             );
 
             results.innerHTML = matches
