@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pediatric Dose Calculator</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50">
+    <div class="max-w-4xl mx-auto p-4">
+        <h1 class="text-3xl font-bold text-gray-900 mb-8">Pediatric Dose Calculator</h1>
+        
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="mb-6">
+                <label for="radioSearch" class="block text-sm font-medium text-gray-700 mb-1">
+                    Search Radiopharmaceutical
+                    <span class="text-sm text-gray-500 font-normal">(required for EANM method)</span>
+                </label>
+                <input type="text" id="radioSearch" 
+                    class="w-full p-2 border border-gray-300 rounded-md"
+                    placeholder="Start typing...">
+                <div id="searchResults" class="hidden mt-1 max-h-60 overflow-auto border border-gray-200 rounded-md"></div>
+                <div id="selectedRadio" class="hidden mt-2 p-2 bg-blue-50 text-blue-700 rounded-md"></div>
+            </div>
+
+            <div class="mb-6">
+                <label for="weight" class="block text-sm font-medium text-gray-700 mb-1">
+                    Weight (kg)
+                    <span class="text-sm text-gray-500 font-normal">(required for weight-based and EANM methods)</span>
+                </label>
+                <input type="number" id="weight" min="0" step="0.1"
+                    class="w-full p-2 border border-gray-300 rounded-md">
+            </div>
+
+            <div class="mb-6">
+                <label for="age" class="block text-sm font-medium text-gray-700 mb-1">
+                    Age (years)
+                    <span class="text-sm text-gray-500 font-normal">(required for Webster's formula)</span>
+                </label>
+                <input type="number" id="age" min="0" step="1"
+                    class="w-full p-2 border border-gray-300 rounded-md">
+            </div>
+
+            <div class="mb-6">
+                <label for="adultDose" class="block text-sm font-medium text-gray-700 mb-1">
+                    Adult Dose (mCi)
+                    <span class="text-sm text-gray-500 font-normal">(required for weight-based and Webster's methods)</span>
+                </label>
+                <input type="number" id="adultDose" min="0" step="0.1"
+                    class="w-full p-2 border border-gray-300 rounded-md">
+            </div>
+        </div>
+
+        <div id="result" class="hidden mt-6">
+            <h3 class="text-xl font-semibold text-gray-900 mb-4">Results:</h3>
+            <div id="resultContent"></div>
+        </div>
+    </div>
+
+    <script>
+        // Data
+        const radiopharmaceuticals = {
+            'I-123 (Thyroid)': { class: 'C', baseline: 0.6, minimum: 3 },
+            'I-123 Amphetamine (Brain)': { class: 'B', baseline: 13.0, minimum: 18 },
+            'F-18 FDG-PET torso': { class: 'B', baseline: 25.9, minimum: 26 },
+            'Tc-99m DMSA': { class: 'B', baseline: 6.8, minimum: 18.5 },
+            'Tc-99m MDP': { class: 'B', baseline: 35.0, minimum: 40 }
+            // Add more as needed...
+        };
+
+        // EANM Table
+        const eanmTable = {
+            3: { A: 1, B: 1, C: 1 },
+            4: { A: 1.12, B: 1.14, C: 1.33 },
+            6: { A: 1.47, B: 1.71, C: 2.00 },
+            8: { A: 1.71, B: 2.14, C: 3.00 },
+            10: { A: 1.94, B: 2.71, C: 3.67 },
+            12: { A: 2.18, B: 3.14, C: 4.67 },
+            14: { A: 2.35, B: 3.57, C: 5.67 },
+            16: { A: 2.53, B: 4.00, C: 6.33 },
+            18: { A: 2.71, B: 4.43, C: 7.33 },
+            20: { A: 2.88, B: 4.86, C: 8.33 }
+            // Add more as needed...
+        };
+
+        // Calculator class
+        class DoseCalculator {
+            static calculateWeightBased(weight, adultDose) {
+                const dose = (weight * adultDose) / 70;
+                return {
+                    doseMBq: (dose * 37).toFixed(2),
+                    doseMCi: dose.toFixed(3),
+                    formula: `(${weight} × ${adultDose} mCi)/70 = ${dose.toFixed(3)} mCi`
+                };
+            }
+
+            static calculateWebster(age, adultDose) {
+                const dose = ((age + 1) * adultDose) / (age + 7);
+                return {
+                    doseMBq: (dose * 37).toFixed(2),
+                    doseMCi: dose.toFixed(3),
+                    formula: `((${age} + 1) × ${adultDose} mCi)/(${age} + 7) = ${dose.toFixed(3)} mCi`
+                };
+            }
+
+            static calculateEANM(weight, radiopharmaceutical) {
+                const radioData = radiopharmaceuticals[radiopharmaceutical];
+                if (!radioData) return { error: 'Invalid radiopharmaceutical' };
+
+                const multiplier = this.getEANMMultiplier(weight, radioData.class);
+                const calculatedMBq = multiplier * radioData.baseline;
+                const finalMBq = Math.max(calculatedMBq, radioData.minimum);
+                const finalMCi = finalMBq / 37;
+
+                return {
+                    doseMBq: finalMBq.toFixed(2),
+                    doseMCi: finalMCi.toFixed(3),
+                    minimumMBq: radioData.minimum,
+                    minimumMCi: (radioData.minimum / 37).toFixed(3),
+                    class: radioData.class
+                };
+            }
+
+            static getEANMMultiplier(weight, radioClass) {
+                const weights = Object.keys(eanmTable).map(Number).sort((a, b) => a - b);
+                
+                if (eanmTable[weight]) {
+                    return eanmTable[weight][radioClass];
+                }
+                
+                let lowerWeight = weights.filter(w => w <= weight).pop();
+                let upperWeight = weights.filter(w => w >= weight)[0];
+                
+                if (!lowerWeight) return eanmTable[weights[0]][radioClass];
+                if (!upperWeight) return eanmTable[weights[weights.length - 1]][radioClass];
+                
+                const lowerMultiplier = eanmTable[lowerWeight][radioClass];
+                const upperMultiplier = eanmTable[upperWeight][radioClass];
+                
+                const proportion = (weight - lowerWeight) / (upperWeight - lowerWeight);
+                const interpolatedMultiplier = lowerMultiplier + (upperMultiplier - lowerMultiplier) * proportion;
+                
+                return Math.round(interpolatedMultiplier * 100) / 100;
+            }
+        }
+
+        // UI handling
+        let selectedRadiopharmaceutical = null;
+        let calculationResults = {};
+
+        // Search functionality
+        document.getElementById('radioSearch').addEventListener('input', function(e) {
+            const query = e.target.value.toLowerCase();
+            const results = document.getElementById('searchResults');
+            const selectedDiv = document.getElementById('selectedRadio');
+            
+            if (query.length < 1) {
+                results.style.display = 'none';
+                return;
+            }
+
+            selectedDiv.style.display = 'none';
+            const matches = Object.keys(radiopharmaceuticals).filter(radio => 
+                radio.toLowerCase().includes(query)
+            );
+
+            results.innerHTML = matches
+                .map(radio => `
+                    <div class="p-2 hover:bg-gray-100 cursor-pointer" onclick="selectRadio('${radio}')">
+                        ${radio}
+                    </div>
+                `)
+                .join('');
+            
+            results.style.display = matches.length ? 'block' : 'none';
+        });
+
+        function selectRadio(radio) {
+            selectedRadiopharmaceutical = radio;
+            const selectedDiv = document.getElementById('selectedRadio');
+            selectedDiv.innerHTML = `
+                <div class="flex justify-between items-center">
+                    <span><strong>Selected:</strong> ${radio}</span>
+                    <button onclick="clearRadioSelection()" 
+                        class="bg-blue-700 text-white px-2 py-1 rounded-md text-sm">✕</button>
+                </div>
+            `;
+            selectedDiv.style.display = 'block';
+            document.getElementById('radioSearch').value = '';
+            document.getElementById('searchResults').style.display = 'none';
+            calculateAllMethods();
+        }
+
+        function clearRadioSelection() {
+            selectedRadiopharmaceutical = null;
+            const selectedDiv = document.getElementById('selectedRadio');
+            selectedDiv.style.display = 'none';
+            selectedDiv.innerHTML = '';
+            calculationResults = {};
+            calculateAllMethods();
+        }
+
+        function calculateAllMethods() {
+            const weight = Number(document.getElementById('weight').value);
+            const age = Number(document.getElementById('age').value);
+            const adultDose = Number(document.getElementById('adultDose').value);
+
+            calculationResults = {};
+
+            if (weight > 0 && selectedRadiopharmaceutical) {
+                calculationResults['EANM Table'] = DoseCalculator.calculateEANM(
+                    weight, 
+                    selectedRadiopharmaceutical
+                );
+            }
+
+            if (age > 0 && adultDose > 0) {
+                calculationResults["Webster's Formula"] = DoseCalculator.calculateWebster(
+                    age,
+                    adultDose
+                );
+            }
+
+            if (weight > 0 && adultDose > 0) {
+                calculationResults['Weight-based'] = DoseCalculator.calculateWeightBased(
+                    weight,
+                    adultDose
+                );
+            }
+
+            displayResults();
+        }
+
+        function displayResults() {
+            const resultDiv = document.getElementById('result');
+            const resultContent = document.getElementById('resultContent');
+            
+            if (Object.keys(calculationResults).length === 0) {
+                resultDiv.style.display = 'none';
+                return;
+            }
+
+            const displayOrder = ['EANM Table', "Webster's Formula", 'Weight-based'];
+            
+            const resultsHtml = displayOrder
+                .filter(method => calculationResults[method])
+                .map(method => {
+                    const result = calculationResults[method];
+                    return `
+                        <div class="bg-white rounded-lg shadow p-4 mb-4">
+                            <h4 class="text-lg font-semibold text-blue-700 pb-2 border-b border-gray-200">${method}</h4>
+                            <div class="mt-3">
+                                <p class="mb-2">
+                                    <strong>Calculated Dose:</strong> 
+                                    ${result.doseMCi} mCi (${result.doseMBq} MBq)
+                                </p>
+                                ${result.minimumMBq ? `
+                                    <p class="mb-2">
+                                        <strong>Minimum Required:</strong>
+                                        ${result.minimumMCi} mCi (${result.minimumMBq} MBq)
+                                    </p>
+                                ` : ''}
+                                ${result.class ? `
+                                    <p class="mb-2">
+                                        <strong>Radiopharmaceutical Class:</strong>
+                                        ${result.class}
+                                    </p>
+                                ` : ''}
+                                ${result.formula ? `
+                                    <div class="mt-2 p-2 bg-gray-50 rounded font-mono text-sm">
+                                        <strong>Calculation:</strong> ${result.formula}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                })
+                .join('');
+
+            resultContent.innerHTML = resultsHtml;
+            resultDiv.style.display = 'block';
+        }
+
+        // Add event listeners for auto calculation
+        ['weight', 'age', 'adultDose'].forEach(id => {
+            document.getElementById(id).addEventListener('input', calculateAllMethods);
+        });
+    </script>
+</body>
+</html>
